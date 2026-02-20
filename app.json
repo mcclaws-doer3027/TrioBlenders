@@ -11,10 +11,10 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "HX-12 needs camera access to record SOS evidence.",
-        "NSMicrophoneUsageDescription": "HX-12 needs microphone access to record audio evidence.",
-        "NSLocationWhenInUseUsageDescription": "HX-12 needs location to pinpoint SOS alerts on the map.",
-        "NSLocationAlwaysUsageDescription": "HX-12 needs background location for continuous SOS tracking."
+        "NSCameraUsageDescription": "HX-12 needs camera access to securely record video evidence during an active SOS.",
+        "NSMicrophoneUsageDescription": "HX-12 needs microphone access to record audio evidence during an active SOS.",
+        "NSLocationWhenInUseUsageDescription": "HX-12 needs location access to broadcast your exact coordinates to nearby neighbors when you trigger an SOS.",
+        "NSLocationAlwaysUsageDescription": "HX-12 needs location access to broadcast your exact coordinates to nearby neighbors when you trigger an SOS."
       }
     },
     "android": {
@@ -45,15 +45,15 @@
       [
         "expo-av",
         {
-          "microphonePermission": "HX-12 needs microphone access to record SOS audio evidence."
+          "microphonePermission": "HX-12 needs microphone access to record audio evidence during an active SOS."
         }
       ],
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "HX-12 needs location for SOS alerts.",
-          "locationAlwaysPermission": "HX-12 uses background location for SOS.",
-          "locationWhenInUsePermission": "HX-12 needs location for SOS alerts."
+          "locationAlwaysAndWhenInUsePermission": "HX-12 needs location access to broadcast your exact coordinates to nearby neighbors when you trigger an SOS.",
+          "locationAlwaysPermission": "HX-12 needs location access to broadcast your exact coordinates to nearby neighbors when you trigger an SOS.",
+          "locationWhenInUsePermission": "HX-12 needs location access to broadcast your exact coordinates to nearby neighbors when you trigger an SOS."
         }
       ],
       [

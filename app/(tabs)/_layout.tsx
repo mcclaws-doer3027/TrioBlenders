@@ -1,7 +1,7 @@
-import { FontAwesome5 } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
+import { FontAwesome5 } from '@expo/vector-icons';
 
-export default function PoliceLayout() {
+export default function TabsLayout() {
     return (
         <Tabs
             screenOptions={{
@@ -13,7 +13,7 @@ export default function PoliceLayout() {
                     height: 60,
                     paddingBottom: 8,
                 },
-                tabBarActiveTintColor: '#3B82F6',
+                tabBarActiveTintColor: '#FF2D2D',
                 tabBarInactiveTintColor: '#555',
                 tabBarLabelStyle: {
                     fontSize: 10,
@@ -23,20 +23,11 @@ export default function PoliceLayout() {
             }}
         >
             <Tabs.Screen
-                name="alerts"
+                name="index"
                 options={{
-                    title: 'SOS ALERTS',
+                    title: 'HX-12 DASHBOARD',
                     tabBarIcon: ({ color, size }) => (
-                        <FontAwesome5 name="bell" size={size} color={color} />
-                    ),
-                }}
-            />
-            <Tabs.Screen
-                name="reports"
-                options={{
-                    title: 'REPORTS',
-                    tabBarIcon: ({ color, size }) => (
-                        <FontAwesome5 name="clipboard-list" size={size} color={color} />
+                        <FontAwesome5 name="shield-alt" size={size} color={color} />
                     ),
                 }}
             />
