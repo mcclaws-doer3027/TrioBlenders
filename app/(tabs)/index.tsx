@@ -14,12 +14,11 @@ import {
 } from 'react-native';
 
 /**
- * HX-12 PIVOT DASHBOARD (No-Auth Demo)
- * Combined Sender (SOS Trigger) and Receiver (Realtime Alerts) screen.
- * 
- * Step 1: Hardware Access (Camera, Mic, Location)
- * Step 2: Supabase Realtime (Receiver)
- * Step 3: SOS Flow (Sender - Anonymous)
+ * HX-12 OPTIMIZED LIVE DEMO DASHBOARD
+ * Features:
+ * 1. Immediate Broadcast: Inserts to DB the moment SOS is pressed.
+ * 2. Manual Stop: Allows user to choose when to end recording.
+ * 3. Evidence Sync: Logic to upload and update the alert row.
  */
 
 export default function DashboardScreen() {
@@ -28,38 +27,37 @@ export default function DashboardScreen() {
     const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
     const [locationStatus, setLocationStatus] = useState<Location.PermissionStatus | null>(null);
 
-    // --- UI STATE ---
-    const [isRecording, setIsRecording] = useState(false);
-    const [statusText, setStatusText] = useState('System Standby');
+    // --- SOS STATE ---
+    const [isSOSActive, setIsSOSActive] = useState(false);
+    const [activeAlertId, setActiveAlertId] = useState<string | null>(null);
+    const [statusText, setStatusText] = useState('System Ready');
 
     // --- REFS ---
     const cameraRef = useRef<CameraView>(null);
     const pulseAnim = useRef(new Animated.Value(1)).current;
 
-    // 1. INITIALIZE PERMISSIONS & REALTIME
+    // 1. INITIALIZE PERMISSIONS & REALTIME LISTENER
     useEffect(() => {
         (async () => {
-            // Request permissions
             await requestCameraPermission();
             await requestMicrophonePermission();
             const { status } = await Location.requestForegroundPermissionsAsync();
             setLocationStatus(status);
         })();
 
-        // 2. SUPABASE REALTIME (THE RECEIVER FEATURE)
-        // Subscribe to INSERT events on 'sos_alerts' table.
+        // BULLETPRONT REALTIME LISTENER (Supabase v2)
         const channel = supabase
-            .channel('sos-realtime-alerts')
+            .channel('alerts')
             .on(
                 'postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'sos_alerts' },
                 (payload) => {
-                    const { lat, lng } = payload.new;
-                    // Trigger a global alert on the screen for ALL users
+                    // Prevent alerting ourselves for our own insert
+                    // In a real app we'd check user_id, here we just show the alert
                     Alert.alert(
-                        "🚨 SOS TRIGGERED 🚨",
-                        `Emergency Alert at location: [${lat.toFixed(5)}, ${lng.toFixed(5)}]`,
-                        [{ text: "DISMISS" }]
+                        '🚨 NEIGHBOR SOS 🚨',
+                        'Someone nearby needs help! Location identified.',
+                        [{ text: 'WATCH LIVE', style: 'destructive' }, { text: 'DISMISS' }]
                     );
                 }
             )
@@ -70,109 +68,113 @@ export default function DashboardScreen() {
         };
     }, []);
 
-    // PULSE ANIMATION LOGIC
+    // PULSE ANIMATION TRIGGER
     useEffect(() => {
-        if (isRecording) {
+        if (isSOSActive) {
             Animated.loop(
                 Animated.sequence([
-                    Animated.timing(pulseAnim, { toValue: 1.1, duration: 600, useNativeDriver: true }),
-                    Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+                    Animated.timing(pulseAnim, { toValue: 1.1, duration: 500, useNativeDriver: true }),
+                    Animated.timing(pulseAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
                 ])
             ).start();
         } else {
             pulseAnim.setValue(1);
         }
-    }, [isRecording]);
+    }, [isSOSActive]);
 
-    // 3. THE SOS FLOW (THE SENDER FEATURE)
-    const handleSOS = async () => {
-        if (isRecording) return;
+    // 2. SOS START LOGIC (IMMEDIATE BROADCAST)
+    const startSOS = async () => {
+        if (isSOSActive) return;
 
-        setIsRecording(true);
-        setStatusText('RECORDING EVIDENCE');
+        setIsSOSActive(true);
+        setStatusText('BROADCASTING...');
 
         try {
-            // A. Fetch current location immediately
-            const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            // A. Fetch location immediately
+            const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
             const { latitude, longitude } = location.coords;
 
-            // B. Start silent recording
+            // B. IMMEDIATE DB INSERT (Triggers Realtime channel instantly)
+            const { data, error } = await supabase
+                .from('sos_alerts')
+                .insert([{
+                    lat: latitude,
+                    lng: longitude,
+                    status: 'active'
+                }])
+                .select()
+                .single();
+
+            if (error) throw error;
+            setActiveAlertId(data.id);
+            setStatusText('ALERT LIVE - RECORDING');
+
+            // C. Start Camera Recording
             if (cameraRef.current) {
                 cameraRef.current.recordAsync().then(async (video) => {
                     if (video?.uri) {
-                        await processAndUpload(video.uri, latitude, longitude);
+                        await uploadEvidence(video.uri, data.id);
                     }
                 });
-
-                // Demo recording: 5 seconds
-                setTimeout(() => {
-                    stopSOS();
-                }, 5000);
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            setIsRecording(false);
-            setStatusText('System Error');
-            Alert.alert("Hardware Error", "Could not access location or camera.");
+            setIsSOSActive(false);
+            setStatusText('Broadcast Error');
+            Alert.alert('System Error', error.message || 'Failed to trigger SOS.');
         }
     };
 
+    // 3. SOS STOP LOGIC (EVIDENCE SYNC)
     const stopSOS = () => {
-        if (cameraRef.current && isRecording) {
+        if (!isSOSActive) return;
+
+        setIsSOSActive(false);
+        setStatusText('FINALIZING EVIDENCE');
+
+        if (cameraRef.current) {
             cameraRef.current.stopRecording();
-            setIsRecording(false);
         }
     };
 
-    const processAndUpload = async (uri: string, lat: number, lng: number) => {
-        setStatusText('SECURE UPLOAD IN PROGRESS');
+    const uploadEvidence = async (uri: string, alertId: string) => {
+        setStatusText('SYNCING VIDEO EVIDENCE');
 
         try {
-            // 1. Convert URI to Blob
+            // Convert URI to Blob
             const response = await fetch(uri);
             const blob = await response.blob();
 
-            const fileName = `demo_sos_${Date.now()}.mp4`;
+            const fileName = `alert_${alertId}_${Date.now()}.mp4`;
 
-            // 2. Upload to Supabase Storage
-            const { data: storageData, error: storageError } = await supabase.storage
+            // Upload to Storage
+            const { error: storageError } = await supabase.storage
                 .from('sos-evidence')
-                .upload(fileName, blob, {
-                    contentType: 'video/mp4',
-                    upsert: false
-                });
+                .upload(fileName, blob, { contentType: 'video/mp4' });
 
             if (storageError) throw storageError;
 
-            // 3. Insert into sos_alerts table (Anonymous insert)
-            // Removed user_id requirement
-            const { error: dbError } = await supabase
+            // Update the existing alert row with the video path
+            await supabase
                 .from('sos_alerts')
-                .insert([
-                    {
-                        lat: lat,
-                        lng: lng,
-                        video_path: fileName,
-                        status: 'active'
-                    }
-                ]);
+                .update({ video_path: fileName })
+                .eq('id', alertId);
 
-            if (dbError) throw dbError;
-
-            setStatusText('ALERT BROADCASTED');
-            setTimeout(() => setStatusText('System Standby'), 3000);
-
+            setStatusText('EVIDENCE SECURED');
+            setTimeout(() => setStatusText('System Ready'), 3000);
         } catch (error: any) {
             console.error(error);
-            setStatusText('Upload Failed');
-            Alert.alert("Network Sync Error", error.message || "Failed to sync SOS data.");
+            setStatusText('Sync Failed');
+            Alert.alert('Evidence Error', 'Video captured but failed to upload.');
+        } finally {
+            setActiveAlertId(null);
         }
     };
 
     return (
         <View style={styles.container}>
-            {/* BACKGROUND CAMERA (SILENT RECORDING) */}
-            {(cameraPermission?.granted && microphonePermission?.granted) && (
+            {/* STEALTH CAMERA BACKGROUND */}
+            {(cameraPermission?.granted) && (
                 <CameraView
                     ref={cameraRef}
                     style={StyleSheet.absoluteFill}
@@ -185,28 +187,34 @@ export default function DashboardScreen() {
             {/* OVERLAY UI */}
             <View style={styles.overlay}>
                 <View style={styles.header}>
-                    <Text style={styles.headerTitle}>HX-12 MONITOR</Text>
-                    <View style={[styles.statusIndicator, { backgroundColor: isRecording ? '#FF2D2D' : '#00FF00' }]} />
-                    <Text style={styles.statusText}>{statusText}</Text>
+                    <Text style={styles.appTitle}>HX-12 DEMO</Text>
+                    <View style={[styles.pulseDot, { backgroundColor: isSOSActive ? '#FF0000' : '#00FF00' }]} />
+                    <Text style={styles.statusLabel}>{statusText}</Text>
                 </View>
 
-                <View style={styles.centerSection}>
+                <View style={styles.actionSection}>
                     <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
                         <Pressable
-                            style={[styles.sosButton, isRecording && styles.sosButtonActive]}
-                            onPress={handleSOS}
+                            onPress={isSOSActive ? stopSOS : startSOS}
+                            style={[styles.mainButton, isSOSActive ? styles.stopButton : styles.sosButton]}
                         >
-                            <Text style={styles.sosText}>{isRecording ? 'SYNC' : 'SOS'}</Text>
+                            <Text style={styles.buttonText}>
+                                {isSOSActive ? '⏹ STOP' : '🚨 SOS'}
+                            </Text>
                         </Pressable>
                     </Animated.View>
 
-                    <Text style={styles.subtext}>
-                        ANONYMOUS DEMO MODE ACTIVE
+                    <Text style={styles.hintText}>
+                        {isSOSActive
+                            ? 'ALERT IS BROADCASTING LIVE\nTAP STOP TO SYNC EVIDENCE'
+                            : 'PRESS TO TRIGGER INSTANT\nNEIGHBORHOOD BROADCAST'}
                     </Text>
                 </View>
 
                 <View style={styles.footer}>
-                    <Text style={styles.badge}>REALTIME NODE ACTIVE</Text>
+                    <View style={styles.realtimeBadge}>
+                        <Text style={styles.badgeText}>REALTIME MONITOR ACTIVE</Text>
+                    </View>
                 </View>
             </View>
         </View>
@@ -223,74 +231,86 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0,0,0,0.85)',
         padding: 30,
         justifyContent: 'space-between',
-    },
-    header: {
-        marginTop: 50,
         alignItems: 'center',
     },
-    headerTitle: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: '900',
-        letterSpacing: 6,
+    header: {
+        marginTop: 60,
+        alignItems: 'center',
     },
-    statusIndicator: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        marginTop: 15,
+    appTitle: {
+        color: '#fff',
+        fontSize: 20,
+        fontWeight: '900',
+        letterSpacing: 8,
+    },
+    pulseDot: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        marginTop: 20,
         marginBottom: 5,
     },
-    statusText: {
-        color: '#888',
-        fontSize: 10,
-        fontWeight: '700',
+    statusLabel: {
+        color: '#666',
+        fontSize: 12,
+        fontWeight: 'bold',
         textTransform: 'uppercase',
         letterSpacing: 2,
     },
-    centerSection: {
+    actionSection: {
         alignItems: 'center',
+        width: '100%',
     },
-    sosButton: {
-        width: 220,
-        height: 220,
-        borderRadius: 110,
-        backgroundColor: '#FF2D2D',
+    mainButton: {
+        width: 240,
+        height: 240,
+        borderRadius: 120,
         justifyContent: 'center',
         alignItems: 'center',
-        borderWidth: 10,
-        borderColor: 'rgba(255, 45, 45, 0.2)',
+        borderWidth: 8,
+        elevation: 25,
+        shadowColor: '#fff',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
     },
-    sosButtonActive: {
-        backgroundColor: '#330000',
-        borderColor: '#FF2D2D',
+    sosButton: {
+        backgroundColor: '#CC0000',
+        borderColor: 'rgba(255, 0, 0, 0.2)',
     },
-    sosText: {
+    stopButton: {
+        backgroundColor: '#222',
+        borderColor: '#444',
+    },
+    buttonText: {
         color: '#fff',
-        fontSize: 52,
+        fontSize: 44,
         fontWeight: '900',
         letterSpacing: 2,
     },
-    subtext: {
+    hintText: {
         color: '#444',
-        fontSize: 11,
+        fontSize: 12,
         textAlign: 'center',
         marginTop: 40,
-        letterSpacing: 3,
+        lineHeight: 20,
+        fontWeight: '600',
+        letterSpacing: 1.5,
     },
     footer: {
-        marginBottom: 20,
-        alignItems: 'center',
+        marginBottom: 30,
     },
-    badge: {
-        color: '#00FF00',
-        fontSize: 9,
-        fontWeight: '900',
-        letterSpacing: 2,
+    realtimeBadge: {
         borderWidth: 1,
         borderColor: '#00FF00',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 2,
+        paddingHorizontal: 15,
+        paddingVertical: 8,
+        borderRadius: 4,
+    },
+    badgeText: {
+        color: '#00FF00',
+        fontSize: 10,
+        fontWeight: '900',
+        letterSpacing: 2,
     },
 });
